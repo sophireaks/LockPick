@@ -1,35 +1,52 @@
-# LockPick — Terminal Security Toolkit
+# LockPick
 
 > Find what shouldn't be there. Before someone else does.
 
-A Python CLI security toolkit — scan repos for leaked secrets, audit passwords, hash files, and more — all from your terminal.
+LockPick is an open-source terminal security toolkit for developers. Scan your repos for leaked credentials, audit passwords against breach databases, hash and verify files — all without leaving the terminal.
 
-## Features
+---
 
-| Command | What it does |
-|---|---|
-| `scan` | Scan a directory/repo for 30+ types of hardcoded secrets & credentials |
-| `password check` | Analyze password strength + check HaveIBeenPwned (k-Anonymity) |
-| `password generate` | Generate a cryptographically strong password |
-| `hash text/file` | Hash strings or files with 10 algorithms |
-| `hash verify` | Verify a hash against a known value |
-| `hash hmac` | Generate an HMAC signature |
+## Requirements
+
+- Python 3.10 or higher
+- pip
+
+---
 
 ## Installation
 
+**1. Clone the repo**
 ```bash
 git clone https://github.com/sophireaks/LockPick.git
 cd LockPick
+```
+
+**2. (Recommended) Create a virtual environment**
+```bash
+python -m venv venv
+
+# Windows
+venv\Scripts\activate
+
+# macOS / Linux
+source venv/bin/activate
+```
+
+**3. Install dependencies**
+```bash
 pip install -r requirements.txt
 ```
 
-> Optional: `pip install gitpython` to enable git history scanning.
+**4. (Optional) Enable git history scanning**
+```bash
+pip install gitpython
+```
 
-## Usage
+---
 
-### Interactive mode (recommended)
+## Quick Start
 
-Just run with no arguments to get the interactive menu:
+Run with no arguments to launch the interactive menu:
 
 ```bash
 python main.py
@@ -46,63 +63,140 @@ python main.py
   [0] Exit
 ```
 
-Pick a number, answer the prompts, and the tool does the rest. The menu loops until you exit.
+Pick a number, answer the prompts, results appear instantly. The menu loops until you choose `0` to exit.
 
 ---
 
-### Command-line mode
+## Features
 
-You can also run commands directly:
+### 1. Secret Scanner
+Scans every file in a directory (and optionally the full git commit history) for hardcoded credentials.
 
-```bash
-# Scan a repo for secrets
-python main.py scan /path/to/repo
-python main.py scan .                      # current directory
-python main.py scan . --no-history         # skip git history
-python main.py scan . --commits 500        # scan last 500 commits
-python main.py scan . --json report.json   # save findings to JSON
-
-# Password tools
-python main.py password check "MyP@ssw0rd"
-python main.py password check "hunter2" --no-hibp
-python main.py password generate
-python main.py password generate --length 24 --no-symbols
-
-# Hashing
-python main.py hash text "hello world"
-python main.py hash text "hello world" --algorithm sha512
-python main.py hash text "hello world" --all
-python main.py hash file ./myfile.zip
-python main.py hash verify "hello world" 2cf24d...
-python main.py hash hmac "message" "secret-key"
-```
-
-## Secret Detection Rules
-
-The scanner detects 30+ credential types including:
-
+Detects 30+ types including:
 - AWS Access Keys & Secret Keys
-- GitHub / GitLab / NPM / PyPI tokens
+- GitHub, GitLab, NPM, PyPI tokens
 - Stripe, SendGrid, Twilio, Slack, Discord API keys
 - Google API Keys & OAuth credentials
 - Firebase, Heroku, Shopify, Azure secrets
-- PEM private keys (RSA, EC, DSA, OpenSSH)
+- RSA / EC / OpenSSH private keys (PEM)
 - JWT tokens
-- Hardcoded passwords, tokens, connection strings
-- Basic auth credentials in URLs
+- Hardcoded passwords, connection strings, basic-auth URLs
 
-Findings are masked before display — the actual secret value is never printed in full.
+> All matches are **masked** before display — the real secret value is never printed in full.
 
-## Privacy
+```bash
+python main.py scan .                      # scan current directory
+python main.py scan /path/to/repo
+python main.py scan . --no-history         # skip git history
+python main.py scan . --commits 500        # scan deeper into git history
+python main.py scan . --json report.json   # export findings to JSON
+```
 
-- HIBP password checks use **k-Anonymity**: only the first 5 characters of the SHA-1 hash are sent to the API. Your password never leaves your machine.
-- Secret scanner runs **entirely offline**.
+Findings are sorted by severity: `CRITICAL` > `HIGH` > `MEDIUM` > `LOW`
 
-## Severity Levels
+---
+
+### 2. Password Audit
+Checks a password's strength and whether it has appeared in known data breaches.
+
+```bash
+python main.py password check "MyP@ssw0rd"
+python main.py password check "hunter2" --no-hibp   # skip breach check
+```
+
+**What it checks:**
+- Length, character variety, entropy (bits)
+- Repeated or sequential patterns
+- Membership in a list of 30+ common passwords
+- Breach exposure via the [HaveIBeenPwned](https://haveibeenpwned.com/API/v3) API
+
+> **Privacy:** uses k-Anonymity — only the first 5 characters of the SHA-1 hash are sent. Your full password never leaves your machine.
+
+---
+
+### 3. Password Generator
+Generates a cryptographically secure password that passes strength checks.
+
+```bash
+python main.py password generate
+python main.py password generate --length 24
+python main.py password generate --length 20 --no-symbols
+python main.py password generate --no-ambiguous     # exclude 0, O, 1, l, I
+```
+
+---
+
+### 4. Hashing
+Hash text or files using 10 supported algorithms:
+`md5`, `sha1`, `sha224`, `sha256`, `sha384`, `sha512`, `sha3_256`, `sha3_512`, `blake2b`, `blake2s`
+
+```bash
+python main.py hash text "hello world"
+python main.py hash text "hello world" --algorithm sha512
+python main.py hash text "hello world" --all          # show every algorithm at once
+
+python main.py hash file ./archive.zip
+python main.py hash file ./archive.zip --algorithm md5
+```
+
+---
+
+### 5. Hash Verification
+Verify that a value matches a known hash — useful for checking file integrity.
+
+```bash
+python main.py hash verify "hello world" b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9
+```
+
+---
+
+### 6. HMAC
+Generate a Hash-based Message Authentication Code to sign and verify messages.
+
+```bash
+python main.py hash hmac "my message" "my-secret-key"
+python main.py hash hmac "my message" "my-secret-key" --algorithm sha512
+```
+
+---
+
+## Severity Reference
 
 | Level | Meaning |
 |---|---|
-| CRITICAL | Immediate risk — rotate now |
-| HIGH | Likely exploitable credential |
-| MEDIUM | Potential exposure |
-| LOW | Informational |
+| `CRITICAL` | Active credential — assume compromised, rotate immediately |
+| `HIGH` | Likely exploitable secret or token |
+| `MEDIUM` | Potential exposure, review manually |
+| `LOW` | Informational, low risk |
+
+---
+
+## Tips
+
+- Run `python main.py scan .` before every commit to catch secrets early
+- Use `--json report.json` to pipe findings into other tools or CI pipelines
+- Run `password generate --length 24` whenever you need a new credential
+- Add LockPick to your CI pipeline to block PRs that introduce secrets
+
+---
+
+## Contributing
+
+Contributions are welcome.
+
+1. Fork the repo
+2. Create a branch: `git checkout -b feature/your-feature`
+3. Make your changes and test them
+4. Push and open a Pull Request
+
+Ideas for contributions:
+- New secret detection patterns
+- Additional hash algorithms
+- Export formats (HTML report, CSV)
+- CI/CD integration guide
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE) for details.
