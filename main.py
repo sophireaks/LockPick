@@ -362,6 +362,153 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _ask(prompt: str, default: str = "") -> str:
+    try:
+        val = input(f"  {prompt}: ").strip()
+        return val if val else default
+    except (EOFError, KeyboardInterrupt):
+        raise KeyboardInterrupt
+
+
+def _menu(title: str, options: list[tuple[str, str]]) -> str:
+    console.print(f"\n[bold cyan]  {title}[/bold cyan]")
+    console.rule(style="dim")
+    for key, label in options:
+        console.print(f"  [bold cyan][{key}][/bold cyan] {label}")
+    console.rule(style="dim")
+    try:
+        return input("  Choose: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        raise KeyboardInterrupt
+
+
+def interactive_mode() -> None:
+    while True:
+        choice = _menu("MAIN MENU", [
+            ("1", "Scan directory for secrets"),
+            ("2", "Password check"),
+            ("3", "Password generate"),
+            ("4", "Hash text"),
+            ("5", "Hash file"),
+            ("6", "Hash verify"),
+            ("7", "Generate HMAC"),
+            ("0", "Exit"),
+        ])
+
+        if choice == "0":
+            console.print("\n[dim]  Goodbye.[/dim]\n")
+            break
+
+        elif choice == "1":
+            path = _ask("Directory path (Enter for current dir)", ".")
+            no_history = _ask("Skip git history scan? [y/N]", "n").lower() == "y"
+            commits = 200
+            if not no_history:
+                c = _ask("Max commits to scan (Enter for 200)", "200")
+                commits = int(c) if c.isdigit() else 200
+            save_json = _ask("Save JSON report? Enter filename or leave blank", "")
+
+            class ScanArgs:
+                pass
+            a = ScanArgs()
+            a.path = path
+            a.no_history = no_history
+            a.commits = commits
+            a.json = save_json if save_json else None
+            cmd_scan(a)
+
+        elif choice == "2":
+            pw = _ask("Password to check")
+            if not pw:
+                console.print("[yellow]  No password entered.[/yellow]")
+                continue
+            no_hibp = _ask("Skip HIBP check? [y/N]", "n").lower() == "y"
+
+            class PwCheckArgs:
+                pass
+            a = PwCheckArgs()
+            a.password = pw
+            a.no_hibp = no_hibp
+            cmd_password_check(a)
+
+        elif choice == "3":
+            length = _ask("Length (Enter for 16)", "16")
+            length = int(length) if length.isdigit() else 16
+            no_sym = _ask("Exclude symbols? [y/N]", "n").lower() == "y"
+            no_dig = _ask("Exclude digits? [y/N]", "n").lower() == "y"
+            no_amb = _ask("Exclude ambiguous chars (0O1lI)? [y/N]", "n").lower() == "y"
+
+            class PwGenArgs:
+                pass
+            a = PwGenArgs()
+            a.length = length
+            a.no_symbols = no_sym
+            a.no_digits = no_dig
+            a.no_ambiguous = no_amb
+            cmd_password_generate(a)
+
+        elif choice == "4":
+            text = _ask("Text to hash")
+            if not text:
+                continue
+            algo = _ask("Algorithm (Enter for sha256)", "sha256")
+            show_all = _ask("Show all algorithms? [y/N]", "n").lower() == "y"
+
+            class HashTextArgs:
+                pass
+            a = HashTextArgs()
+            a.text = text
+            a.algorithm = algo
+            a.all = show_all
+            cmd_hash_text(a)
+
+        elif choice == "5":
+            path = _ask("File path")
+            if not path:
+                continue
+            algo = _ask("Algorithm (Enter for sha256)", "sha256")
+
+            class HashFileArgs:
+                pass
+            a = HashFileArgs()
+            a.file = path
+            a.algorithm = algo
+            cmd_hash_file(a)
+
+        elif choice == "6":
+            text = _ask("Original text")
+            expected = _ask("Expected hash")
+            if not text or not expected:
+                continue
+            algo = _ask("Algorithm (Enter for sha256)", "sha256")
+
+            class HashVerifyArgs:
+                pass
+            a = HashVerifyArgs()
+            a.text = text
+            a.expected = expected
+            a.algorithm = algo
+            cmd_hash_verify(a)
+
+        elif choice == "7":
+            text = _ask("Text to sign")
+            key = _ask("Secret key")
+            if not text or not key:
+                continue
+            algo = _ask("Algorithm (Enter for sha256)", "sha256")
+
+            class HmacArgs:
+                pass
+            a = HmacArgs()
+            a.text = text
+            a.key = key
+            a.algorithm = algo
+            cmd_hmac(a)
+
+        else:
+            console.print("[yellow]  Invalid choice.[/yellow]")
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -370,12 +517,15 @@ def main() -> None:
         console.print(BANNER)
 
     if not args.command:
-        parser.print_help()
+        try:
+            interactive_mode()
+        except KeyboardInterrupt:
+            console.print("\n[dim]  Interrupted.[/dim]\n")
         return
 
     if not hasattr(args, "func"):
         subcmd = args.command
-        console.print(f"[yellow]Run:[/yellow] securetool {subcmd} --help")
+        console.print(f"[yellow]Run:[/yellow] python main.py {subcmd} --help")
         return
 
     try:
