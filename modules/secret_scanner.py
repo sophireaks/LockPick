@@ -1,6 +1,7 @@
 import re
 import os
-from dataclasses import dataclass, field
+import fnmatch
+from dataclasses import dataclass
 from typing import Generator
 
 
@@ -15,73 +16,47 @@ class Finding:
 
 
 RULES: list[dict] = [
-    # API Keys & Tokens
-    {"name": "AWS Access Key", "severity": "CRITICAL",
-     "pattern": r"(?i)(AKIA|ASIA|AROA|AIDA)[A-Z0-9]{16}"},
-    {"name": "AWS Secret Key", "severity": "CRITICAL",
-     "pattern": r"(?i)aws.{0,20}secret.{0,20}['\"][A-Za-z0-9/+]{40}['\"]"},
-    {"name": "GitHub Token", "severity": "CRITICAL",
-     "pattern": r"ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82}"},
-    {"name": "GitHub OAuth", "severity": "CRITICAL",
-     "pattern": r"gho_[A-Za-z0-9]{36}"},
-    {"name": "GitHub Actions", "severity": "CRITICAL",
-     "pattern": r"ghs_[A-Za-z0-9]{36}"},
-    {"name": "GitLab Token", "severity": "CRITICAL",
-     "pattern": r"glpat-[A-Za-z0-9\-_]{20}"},
-    {"name": "Slack Token", "severity": "CRITICAL",
-     "pattern": r"xox[baprs]-[A-Za-z0-9\-]{10,48}"},
-    {"name": "Slack Webhook", "severity": "HIGH",
-     "pattern": r"https://hooks\.slack\.com/services/T[A-Za-z0-9_]{8}/B[A-Za-z0-9_]{8,12}/[A-Za-z0-9_]{24}"},
-    {"name": "Stripe Secret Key", "severity": "CRITICAL",
-     "pattern": r"sk_live_[A-Za-z0-9]{24,}"},
-    {"name": "Stripe Publishable Key", "severity": "MEDIUM",
-     "pattern": r"pk_live_[A-Za-z0-9]{24,}"},
-    {"name": "Twilio API Key", "severity": "HIGH",
-     "pattern": r"SK[a-z0-9]{32}"},
-    {"name": "SendGrid API Key", "severity": "HIGH",
-     "pattern": r"SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}"},
-    {"name": "Google API Key", "severity": "HIGH",
-     "pattern": r"AIza[A-Za-z0-9\-_]{35}"},
-    {"name": "Google OAuth", "severity": "HIGH",
-     "pattern": r"[0-9]+-[A-Za-z0-9_]{32}\.apps\.googleusercontent\.com"},
-    {"name": "Firebase URL", "severity": "MEDIUM",
-     "pattern": r"[a-z0-9-]+\.firebaseio\.com"},
-    {"name": "Heroku API Key", "severity": "HIGH",
-     "pattern": r"[hH]eroku.{0,20}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"},
-    {"name": "Mailchimp API Key", "severity": "HIGH",
-     "pattern": r"[A-Za-z0-9]{32}-us[0-9]{1,2}"},
-    {"name": "NPM Token", "severity": "HIGH",
-     "pattern": r"npm_[A-Za-z0-9]{36}"},
-    {"name": "PyPI Token", "severity": "HIGH",
-     "pattern": r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,}"},
-    {"name": "Telegram Bot Token", "severity": "HIGH",
-     "pattern": r"[0-9]{8,10}:[A-Za-z0-9_\-]{35}"},
-    {"name": "Discord Token", "severity": "HIGH",
-     "pattern": r"[MN][A-Za-z0-9]{23}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27}"},
-    {"name": "Twitter Bearer Token", "severity": "HIGH",
-     "pattern": r"AAAA[A-Za-z0-9%]{80,}"},
-    {"name": "Shopify Token", "severity": "HIGH",
-     "pattern": r"shpss_[A-Za-z0-9]{32}|shpat_[A-Za-z0-9]{32}"},
-    {"name": "Azure Client Secret", "severity": "CRITICAL",
-     "pattern": r"(?i)azure.{0,20}(client.secret|password).{0,5}['\"][A-Za-z0-9~._\-]{34,}['\"]"},
-    {"name": "Private Key (PEM)", "severity": "CRITICAL",
-     "pattern": r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"},
-    {"name": "JWT Token", "severity": "MEDIUM",
-     "pattern": r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"},
-    # Passwords in code
-    {"name": "Hardcoded Password", "severity": "HIGH",
-     "pattern": r"(?i)(password|passwd|pwd)\s*=\s*['\"][^'\"]{4,}['\"]"},
-    {"name": "Hardcoded Secret", "severity": "HIGH",
-     "pattern": r"(?i)(secret|api_secret|client_secret)\s*=\s*['\"][^'\"]{8,}['\"]"},
-    {"name": "Hardcoded Token", "severity": "HIGH",
-     "pattern": r"(?i)(token|auth_token|access_token)\s*=\s*['\"][^'\"]{8,}['\"]"},
-    {"name": "Connection String", "severity": "CRITICAL",
-     "pattern": r"(?i)(mongodb|postgresql|mysql|redis|amqp)://[^\s\"']{10,}"},
-    {"name": "Basic Auth in URL", "severity": "HIGH",
-     "pattern": r"https?://[A-Za-z0-9_\-\.]+:[A-Za-z0-9_\-\.@!#$%^&*]+@"},
-    # Sensitive files committed
-    {"name": ".env file content", "severity": "HIGH",
-     "pattern": r"(?m)^[A-Z_]+=.+$"},
+    # AWS
+    {"name": "AWS Access Key",   "severity": "CRITICAL", "pattern": r"(?i)(AKIA|ASIA|AROA|AIDA)[A-Z0-9]{16}"},
+    {"name": "AWS Secret Key",   "severity": "CRITICAL", "pattern": r"(?i)aws.{0,20}secret.{0,20}['\"][A-Za-z0-9/+]{40}['\"]"},
+    # GitHub
+    {"name": "GitHub Token",     "severity": "CRITICAL", "pattern": r"ghp_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{82}"},
+    {"name": "GitHub OAuth",     "severity": "CRITICAL", "pattern": r"gho_[A-Za-z0-9]{36}"},
+    {"name": "GitHub Actions",   "severity": "CRITICAL", "pattern": r"ghs_[A-Za-z0-9]{36}"},
+    # GitLab / NPM / PyPI
+    {"name": "GitLab Token",     "severity": "CRITICAL", "pattern": r"glpat-[A-Za-z0-9\-_]{20}"},
+    {"name": "NPM Token",        "severity": "HIGH",     "pattern": r"npm_[A-Za-z0-9]{36}"},
+    {"name": "PyPI Token",       "severity": "HIGH",     "pattern": r"pypi-AgEIcHlwaS5vcmc[A-Za-z0-9\-_]{50,}"},
+    # Slack
+    {"name": "Slack Token",      "severity": "CRITICAL", "pattern": r"xox[baprs]-[A-Za-z0-9\-]{10,48}"},
+    {"name": "Slack Webhook",    "severity": "HIGH",     "pattern": r"https://hooks\.slack\.com/services/T[A-Za-z0-9_]{8}/B[A-Za-z0-9_]{8,12}/[A-Za-z0-9_]{24}"},
+    # Stripe
+    {"name": "Stripe Secret",    "severity": "CRITICAL", "pattern": r"sk_live_[A-Za-z0-9]{24,}"},
+    {"name": "Stripe Public",    "severity": "MEDIUM",   "pattern": r"pk_live_[A-Za-z0-9]{24,}"},
+    # Communication
+    {"name": "Twilio API Key",   "severity": "HIGH",     "pattern": r"SK[a-z0-9]{32}"},
+    {"name": "SendGrid API Key", "severity": "HIGH",     "pattern": r"SG\.[A-Za-z0-9\-_]{22}\.[A-Za-z0-9\-_]{43}"},
+    {"name": "Telegram Bot",     "severity": "HIGH",     "pattern": r"[0-9]{8,10}:[A-Za-z0-9_\-]{35}"},
+    {"name": "Discord Token",    "severity": "HIGH",     "pattern": r"[MN][A-Za-z0-9]{23}\.[A-Za-z0-9_\-]{6}\.[A-Za-z0-9_\-]{27}"},
+    {"name": "Twitter Bearer",   "severity": "HIGH",     "pattern": r"AAAA[A-Za-z0-9%]{80,}"},
+    {"name": "Mailchimp Key",    "severity": "HIGH",     "pattern": r"[A-Za-z0-9]{32}-us[0-9]{1,2}"},
+    # Google / Firebase
+    {"name": "Google API Key",   "severity": "HIGH",     "pattern": r"AIza[A-Za-z0-9\-_]{35}"},
+    {"name": "Google OAuth",     "severity": "HIGH",     "pattern": r"[0-9]+-[A-Za-z0-9_]{32}\.apps\.googleusercontent\.com"},
+    {"name": "Firebase URL",     "severity": "MEDIUM",   "pattern": r"[a-z0-9-]+\.firebaseio\.com"},
+    # Cloud
+    {"name": "Heroku API Key",   "severity": "HIGH",     "pattern": r"[hH]eroku.{0,20}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"},
+    {"name": "Shopify Token",    "severity": "HIGH",     "pattern": r"shpss_[A-Za-z0-9]{32}|shpat_[A-Za-z0-9]{32}"},
+    {"name": "Azure Secret",     "severity": "CRITICAL", "pattern": r"(?i)azure.{0,20}(client.secret|password).{0,5}['\"][A-Za-z0-9~._\-]{34,}['\"]"},
+    # Keys & tokens
+    {"name": "Private Key (PEM)","severity": "CRITICAL", "pattern": r"-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----"},
+    {"name": "JWT Token",        "severity": "MEDIUM",   "pattern": r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"},
+    # Hardcoded credentials
+    {"name": "Hardcoded Password","severity": "HIGH",    "pattern": r"(?i)(password|passwd|pwd)\s*=\s*['\"][^'\"]{4,}['\"]"},
+    {"name": "Hardcoded Secret", "severity": "HIGH",     "pattern": r"(?i)(secret|api_secret|client_secret)\s*=\s*['\"][^'\"]{8,}['\"]"},
+    {"name": "Hardcoded Token",  "severity": "HIGH",     "pattern": r"(?i)(token|auth_token|access_token)\s*=\s*['\"][^'\"]{8,}['\"]"},
+    {"name": "Connection String","severity": "CRITICAL", "pattern": r"(?i)(mongodb|postgresql|mysql|redis|amqp)://[^\s\"']{10,}"},
+    {"name": "Basic Auth URL",   "severity": "HIGH",     "pattern": r"https?://[A-Za-z0-9_\-\.]+:[A-Za-z0-9_\-\.@!#$%^&*]+@"},
 ]
 
 SKIP_EXTENSIONS = {
@@ -105,6 +80,30 @@ SKIP_FILES = {
 }
 
 MAX_FILE_SIZE = 1 * 1024 * 1024  # 1 MB
+LOCKPICKIGNORE = ".lockpickignore"
+
+
+def _load_ignore_patterns(root: str) -> list[str]:
+    path = os.path.join(root, LOCKPICKIGNORE)
+    if not os.path.isfile(path):
+        return []
+    patterns = []
+    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+        for line in fh:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                patterns.append(line)
+    return patterns
+
+
+def _is_ignored(rel_path: str, patterns: list[str]) -> bool:
+    normalized = rel_path.replace("\\", "/")
+    for pat in patterns:
+        if fnmatch.fnmatch(normalized, pat):
+            return True
+        if fnmatch.fnmatch(os.path.basename(normalized), pat):
+            return True
+    return False
 
 
 def _mask(value: str, visible: int = 6) -> str:
@@ -113,7 +112,7 @@ def _mask(value: str, visible: int = 6) -> str:
     return value[:visible] + "..." + value[-visible:]
 
 
-def _iter_files(root: str) -> Generator[str, None, None]:
+def _iter_files(root: str, ignore: list[str]) -> Generator[tuple[str, str], None, None]:
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         for filename in filenames:
@@ -122,28 +121,43 @@ def _iter_files(root: str) -> Generator[str, None, None]:
             _, ext = os.path.splitext(filename)
             if ext.lower() in SKIP_EXTENSIONS:
                 continue
-            yield os.path.join(dirpath, filename)
+            full = os.path.join(dirpath, filename)
+            rel  = os.path.relpath(full, root)
+            if _is_ignored(rel, ignore):
+                continue
+            yield full, rel
 
 
-def scan_directory(root: str) -> list[Finding]:
+def scan_directory(root: str) -> tuple[list[Finding], dict]:
     findings: list[Finding] = []
     compiled = [(r["name"], r["severity"], re.compile(r["pattern"])) for r in RULES]
+    ignore   = _load_ignore_patterns(root)
 
-    for filepath in _iter_files(root):
+    seen: set[tuple] = set()
+    files_scanned = 0
+    files_skipped = 0
+
+    for filepath, rel in _iter_files(root, ignore):
         try:
-            if os.path.getsize(filepath) > MAX_FILE_SIZE:
+            size = os.path.getsize(filepath)
+            if size > MAX_FILE_SIZE:
+                files_skipped += 1
                 continue
             with open(filepath, "r", encoding="utf-8", errors="ignore") as fh:
                 lines = fh.readlines()
+            files_scanned += 1
         except (OSError, PermissionError):
+            files_skipped += 1
             continue
-
-        rel = os.path.relpath(filepath, root)
 
         for lineno, line in enumerate(lines, start=1):
             for name, severity, pattern in compiled:
                 for m in pattern.finditer(line):
                     raw = m.group(0)
+                    key = (rel, lineno, name, raw)
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     findings.append(Finding(
                         file=rel,
                         line=lineno,
@@ -153,7 +167,8 @@ def scan_directory(root: str) -> list[Finding]:
                         context=line.rstrip(),
                     ))
 
-    return findings
+    stats = {"files_scanned": files_scanned, "files_skipped": files_skipped}
+    return findings, stats
 
 
 def scan_git_history(repo_path: str, max_commits: int = 200) -> list[Finding]:
@@ -164,6 +179,7 @@ def scan_git_history(repo_path: str, max_commits: int = 200) -> list[Finding]:
 
     findings: list[Finding] = []
     compiled = [(r["name"], r["severity"], re.compile(r["pattern"])) for r in RULES]
+    seen: set[tuple] = set()
 
     try:
         repo = git.Repo(repo_path)
@@ -185,11 +201,15 @@ def scan_git_history(repo_path: str, max_commits: int = 200) -> list[Finding]:
             except Exception:
                 continue
 
+            label = f"[git:{commit.hexsha[:8]}] {diff_item.b_path or diff_item.a_path}"
             for lineno, line in enumerate(content.splitlines(), start=1):
                 for name, severity, pattern in compiled:
                     for m in pattern.finditer(line):
                         raw = m.group(0)
-                        label = f"[git:{commit.hexsha[:8]}] {diff_item.b_path or diff_item.a_path}"
+                        key = (label, lineno, name, raw)
+                        if key in seen:
+                            continue
+                        seen.add(key)
                         findings.append(Finding(
                             file=label,
                             line=lineno,
